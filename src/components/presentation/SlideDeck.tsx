@@ -1,7 +1,7 @@
 "use client";
 
 import { Children, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Maximize, Minimize, StickyNote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize, Minimize, MonitorPlay, StickyNote, X } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,8 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
   const [showNotes, setShowNotes] = useState(false);
   const swipeStartX = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const currentSlideRef = useRef(currentSlide);
   const totalSlides = slides.length;
   const currentNote = notes?.[currentSlide];
 
@@ -28,6 +30,60 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
   const prevSlide = useCallback(() => {
     setCurrentSlide((prev) => Math.max(prev - 1, 0));
   }, []);
+
+  const broadcastState = useCallback(() => {
+    channelRef.current?.postMessage({
+      type: "state",
+      currentSlide: currentSlideRef.current,
+      totalSlides,
+      notes: notes ?? [],
+    });
+  }, [notes, totalSlides]);
+
+  const openPresenterView = useCallback(() => {
+    window.open(
+      "/presentation/notes",
+      "presentation-notes",
+      "width=960,height=720,menubar=no,toolbar=no,location=no,status=no"
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !notes || typeof BroadcastChannel === "undefined") return;
+
+    const channel = new BroadcastChannel("prompts-presentation");
+    channelRef.current = channel;
+    channel.onmessage = (event) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      switch (data.type) {
+        case "request":
+          broadcastState();
+          break;
+        case "next":
+          nextSlide();
+          break;
+        case "prev":
+          prevSlide();
+          break;
+        case "goto":
+          if (typeof data.index === "number") {
+            setCurrentSlide(Math.max(0, Math.min(data.index, totalSlides - 1)));
+          }
+          break;
+      }
+    };
+
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, [notes, totalSlides, nextSlide, prevSlide, broadcastState]);
+
+  useEffect(() => {
+    currentSlideRef.current = currentSlide;
+    broadcastState();
+  }, [currentSlide, broadcastState]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -67,12 +123,15 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
       } else if (event.key === "n" || event.key === "N") {
         event.preventDefault();
         setShowNotes((value) => !value);
+      } else if (event.key === "p" || event.key === "P") {
+        event.preventDefault();
+        openPresenterView();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [nextSlide, prevSlide, toggleFullscreen, totalSlides]);
+  }, [nextSlide, prevSlide, toggleFullscreen, totalSlides, openPresenterView]);
 
   return (
     <div
@@ -100,29 +159,41 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
           {currentSlide + 1} / {totalSlides}
         </div>
         {notes && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowNotes((value) => !value)}
-            className={cn(
-              "rounded-full border border-border/70 bg-background/70 shadow-sm backdrop-blur hover:bg-background/90",
-              showNotes && "text-primary"
-            )}
-            title="Konuşmacı notları (N)"
-          >
-            <StickyNote className="h-5 w-5" />
-            <span className="sr-only">{showNotes ? "Notları gizle" : "Notları göster"}</span>
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowNotes((value) => !value)}
+              className={cn(
+                "rounded-full border border-border/70 bg-background/70 shadow-sm backdrop-blur hover:bg-background/90",
+                showNotes && "text-primary"
+              )}
+              title="Speaker notes (N)"
+            >
+              <StickyNote className="h-5 w-5" />
+              <span className="sr-only">{showNotes ? "Hide notes" : "Show notes"}</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={openPresenterView}
+              className="rounded-full border border-border/70 bg-background/70 shadow-sm backdrop-blur hover:bg-background/90"
+              title="Open presenter notes window (P)"
+            >
+              <MonitorPlay className="h-5 w-5" />
+              <span className="sr-only">Open presenter notes window</span>
+            </Button>
+          </>
         )}
         <Button
           variant="ghost"
           size="icon"
           onClick={toggleFullscreen}
           className="rounded-full border border-border/70 bg-background/70 shadow-sm backdrop-blur hover:bg-background/90"
-          title="Tam ekran (F)"
+          title="Fullscreen (F)"
         >
           {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
-          <span className="sr-only">{isFullscreen ? "Tam ekrandan çık" : "Tam ekran yap"}</span>
+          <span className="sr-only">{isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}</span>
         </Button>
         <Link href="/">
           <Button
@@ -131,7 +202,7 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
             className="rounded-full border border-border/70 bg-background/70 shadow-sm backdrop-blur hover:bg-background/90"
           >
             <X className="h-5 w-5" />
-            <span className="sr-only">Kapat</span>
+            <span className="sr-only">Close</span>
           </Button>
         </Link>
       </div>
@@ -166,7 +237,7 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
           className="h-11 w-11 rounded-full bg-background/70 shadow-sm backdrop-blur hover:bg-background/90"
         >
           <ChevronLeft className="h-5 w-5" />
-          <span className="sr-only">Önceki</span>
+          <span className="sr-only">Previous</span>
         </Button>
 
         <div className="flex max-w-[58vw] items-center gap-1.5 overflow-hidden rounded-full border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
@@ -178,7 +249,7 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
                 "h-2.5 rounded-full transition-all duration-300",
                 index === currentSlide ? "w-8 bg-primary" : "w-2.5 bg-muted-foreground/30 hover:bg-muted-foreground/50"
               )}
-              aria-label={`${index + 1}. slayta git`}
+              aria-label={`Go to slide ${index + 1}`}
             />
           ))}
         </div>
@@ -191,14 +262,14 @@ export function SlideDeck({ children, notes }: SlideDeckProps) {
           className="h-11 w-11 rounded-full bg-background/70 shadow-sm backdrop-blur hover:bg-background/90"
         >
           <ChevronRight className="h-5 w-5" />
-          <span className="sr-only">Sonraki</span>
+          <span className="sr-only">Next</span>
         </Button>
       </div>
 
       {showNotes && (
         <div className="absolute inset-x-4 bottom-24 z-50 mx-auto max-w-3xl rounded-2xl border border-border bg-background/95 p-4 shadow-2xl backdrop-blur">
-          <div className="mb-1 text-xs font-bold uppercase tracking-[0.24em] text-primary">Konuşmacı notu</div>
-          <p className="text-sm leading-relaxed text-foreground">{currentNote || "Bu slayt için not yok."}</p>
+          <div className="mb-1 text-xs font-bold uppercase tracking-[0.24em] text-primary">Speaker note</div>
+          <p className="text-sm leading-relaxed text-foreground">{currentNote || "No note for this slide."}</p>
         </div>
       )}
 
