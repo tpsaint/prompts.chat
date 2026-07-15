@@ -153,6 +153,7 @@ export default async function RootLayout({
   const pathname = headersList.get("x-pathname") || headersList.get("x-invoke-path") || "";
   const isEmbedRoute = pathname.startsWith("/embed");
   const isKidsRoute = pathname.startsWith("/kids");
+  const isPresentationRoute = pathname.startsWith("/presentation");
   
   const locale = await getLocale();
   const messages = await getMessages();
@@ -191,7 +192,7 @@ export default async function RootLayout({
           <Analytics gaId={process.env.GOOGLE_ANALYTICS_ID} />
         )}
         <Providers locale={locale} messages={messages} theme={config.theme} branding={{ ...config.branding, useCloneBranding: config.homepage?.useCloneBranding }}>
-          {isEmbedRoute || isKidsRoute ? (
+          {isEmbedRoute || isKidsRoute || isPresentationRoute ? (
             children
           ) : (
             <>
